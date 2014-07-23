@@ -1,3 +1,4 @@
+// Package cron parses cron time schedules and computes scheduling.
 package cron
 
 import (
