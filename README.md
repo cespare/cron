@@ -1,5 +1,5 @@
 # cron
 
-A Go library to parse cron time schedules and compute scheduling.
+[![GoDoc](https://godoc.org/github.com/cespare/cron?status.svg)](https://godoc.org/github.com/cespare/cron)
 
-Docs at [godoc.org/github.com/cespare/cron](http://godoc.org/github.com/cespare/cron).
+A Go library to parse cron time schedules and compute scheduling.
