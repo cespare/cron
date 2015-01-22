@@ -141,6 +141,7 @@ var fieldNames = [...]string{
 	4: "day of week",
 }
 
+// A Schedule is a parsed cron schedule.
 type Schedule [scheduleBytes]byte
 
 var namedSchedules = map[string]string{
