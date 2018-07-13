@@ -7,8 +7,7 @@ import (
 )
 
 // One []int each for minutes, hours, ...
-// must be in sorted order
-// nil == '*'
+// Must be in sorted order. nil == '*'
 type testSchedule [5][]int
 
 type parseTestCase struct {
@@ -94,7 +93,7 @@ func TestValid(t *testing.T) {
 		t.Fatalf("expected %v to be valid", s)
 	}
 	if new(Schedule).Valid() {
-		t.Fatalf("a blank schedule should not be valid", s)
+		t.Fatal("a blank schedule should not be valid")
 	}
 }
 
