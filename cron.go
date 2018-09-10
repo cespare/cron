@@ -154,7 +154,9 @@ var fieldNames = [...]string{
 }
 
 // A Schedule is a parsed cron schedule.
-type Schedule [scheduleBytes]byte
+type Schedule struct {
+	b [scheduleBytes]byte
+}
 
 var namedSchedules = map[string]string{
 	"@monthly": "0 0 1 * *",
@@ -322,25 +324,24 @@ func matchUniquePrefix(prefix string, dict []string) int {
 }
 
 func (s *Schedule) set(off int) {
-	(*s)[off/8] |= (1 << uint(off%8))
+	s.b[off/8] |= (1 << uint(off%8))
 }
 
 func (s *Schedule) isSet(off int) bool {
-	return (*s)[off/8]&(1<<uint(off%8)) > 0
+	return s.b[off/8]&(1<<uint(off%8)) > 0
 }
 
-func (s *Schedule) union(other *Schedule) {
-	for i := range *s {
-		(*s)[i] |= (*other)[i]
+func (s *Schedule) union(s1 *Schedule) {
+	for i := range s.b {
+		s.b[i] |= s1.b[i]
 	}
 }
 
-func (s *Schedule) String() string {
+func (s *Schedule) debugString() string {
 	var buf bytes.Buffer
-	// TODO: The (undocumented?) b (binary) fmt formatter doesn't seem to work on bytes/uint8. Bug?
-	for i, b := range *s {
-		fmt.Fprintf(&buf, "%08b", uint32(b))
-		if i < len(*s) {
+	for i, b := range s.b {
+		fmt.Fprintf(&buf, "%08b", b)
+		if i < len(s.b) {
 			fmt.Fprint(&buf, " ")
 		}
 	}
