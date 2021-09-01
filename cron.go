@@ -2,7 +2,6 @@
 package cron
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -26,7 +25,7 @@ func Parse(expr string) (*Schedule, error) {
 	if err != nil {
 		// Just for a friendlier error message
 		if strings.HasPrefix(expr, "@") {
-			return nil, fmt.Errorf("unrecognized cron schedule name: %q\n", expr)
+			return nil, fmt.Errorf("unrecognized cron schedule name: %q", expr)
 		}
 		return nil, fmt.Errorf("invalid cron schedule: %s", err)
 	}
@@ -335,32 +334,4 @@ func (s *Schedule) union(s1 *Schedule) {
 	for i := range s.b {
 		s.b[i] |= s1.b[i]
 	}
-}
-
-func (s *Schedule) debugString() string {
-	var buf bytes.Buffer
-	for i, b := range s.b {
-		fmt.Fprintf(&buf, "%08b", b)
-		if i < len(s.b) {
-			fmt.Fprint(&buf, " ")
-		}
-	}
-	fmt.Fprintln(&buf)
-	for i := 0; i < 5; i++ {
-		anyUnset := false
-		var indices []int
-		for j := 0; j < fieldSizes[i]; j++ {
-			if s.isSet(fieldOffsets[i] + j) {
-				indices = append(indices, j)
-			} else {
-				anyUnset = true
-			}
-		}
-		setList := fmt.Sprintf("%v", indices)
-		if !anyUnset {
-			setList = "*"
-		}
-		fmt.Fprintf(&buf, "%-15s %s\n", fieldNames[i], setList)
-	}
-	return buf.String()
 }
