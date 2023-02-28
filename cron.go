@@ -11,10 +11,27 @@ import (
 // Parse parses a cron expression string. Five fields (minute, hour, day of
 // month, month, day of week) are expected. Valid symbols are
 //
-//   * , - /
+//	/ - * ,
 //
-// Month and weekday names (or any unique prefix thereof) may be used in those
-// respective fields (case sensitivity is ignored).
+// Month and weekday names (or any unique prefix thereof, case-insensitively)
+// may be used in those respective fields. Months start on day 1. Weeks start on
+// day 0, Sunday. The maximum weekday value is 6, Saturday.
+//
+// Here are some examples of valid expression strings along with their meanings:
+//
+//   - "* * * * *": every minute
+//   - "/5 * * * *": every 5 minutes
+//   - "15 * * * *": every hour at 15 past
+//   - "0 3 * * Wed": every Wednesday at 0300
+//   - "0 0 1 */3 *": at the beginning of each quarter
+//
+// Instead of a five-field expression, a named schedule starting with "@" may be
+// used. Four named schedules are recognized:
+//
+//   - "@monthly", meaning "0 0 1 * *",
+//   - "@weekly", meaning "0 0 * * 0",
+//   - "@daily", meaning "0 0 * * *", and
+//   - "@hourly", meaning "0 * * * *".
 //
 // Read http://en.wikipedia.org/wiki/Cron for more information about the format.
 func Parse(expr string) (*Schedule, error) {
