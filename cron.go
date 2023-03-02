@@ -2,7 +2,9 @@
 package cron
 
 import (
+	"errors"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -36,17 +38,61 @@ import (
 // Read http://en.wikipedia.org/wiki/Cron for more information about the format.
 func Parse(expr string) (*Schedule, error) {
 	if fieldExpr, ok := namedSchedules[expr]; ok {
-		return parseFields(fieldExpr)
+		return parseFields(fieldExpr, nil)
 	}
-	schedule, err := parseFields(expr)
+	schedule, err := parseFields(expr, nil)
+	if err == nil {
+		return schedule, nil
+	}
+	if err == ErrParseHashedSchedule {
+		return nil, err
+	}
+	return nil, parseError(expr, err)
+}
+
+// ParseWithHash is like Parse but additionally supports the symbol H in place
+// of the minute, hour, day of month, month, or day of week field. The H symbol
+// requests a random value (within the valid range) for each instance of H in
+// the cron expression fixed using the given seed.
+//
+// For example, the schedule
+//
+//	H H * * *
+//
+// is a schedule that fires once per day at a random hour and minute that is
+// chosen when the schedule is parsed. Given the same seed, the same schedule is
+// generated.
+//
+// The range for randomly generated day of month values is [1, 28].
+//
+// Additionally, ParseWithHash interprets the named schedules differently from
+// Parse:
+//
+//   - "@monthly" means "H H H * *"
+//   - "@weekly" means "H H * * H"
+//   - "@daily" means "H H * * *"
+//   - "@hourly" means "H * * * *"
+//
+// The idea of the H symbol is borrowed from Jenkins, though the details are a
+// bit different.
+func ParseWithHash(expr string, seed uint64) (*Schedule, error) {
+	hf := newHashedFields(seed)
+	if fieldExpr, ok := namedHashedSchedules[expr]; ok {
+		return parseFields(fieldExpr, hf)
+	}
+	schedule, err := parseFields(expr, hf)
 	if err != nil {
-		// Just for a friendlier error message
-		if strings.HasPrefix(expr, "@") {
-			return nil, fmt.Errorf("unrecognized cron schedule name: %q", expr)
-		}
-		return nil, fmt.Errorf("invalid cron schedule: %s", err)
+		return nil, parseError(expr, err)
 	}
 	return schedule, nil
+}
+
+func parseError(expr string, err error) error {
+	// Just for a friendlier error message
+	if strings.HasPrefix(expr, "@") {
+		return fmt.Errorf("unrecognized cron schedule name: %q", expr)
+	}
+	return fmt.Errorf("invalid cron schedule: %s", err)
 }
 
 // Valid reports whether s is a valid schedule (that is, whether it could
@@ -181,6 +227,13 @@ var namedSchedules = map[string]string{
 	"@hourly":  "0 * * * *",
 }
 
+var namedHashedSchedules = map[string]string{
+	"@monthly": "H H H * *",
+	"@weekly":  "H H * * H",
+	"@daily":   "H H * * *",
+	"@hourly":  "H * * * *",
+}
+
 var monthNames = []string{
 	"january",
 	"february",
@@ -206,7 +259,9 @@ var dowNames = []string{
 	"saturday",
 }
 
-func parseFields(expr string) (*Schedule, error) {
+// parseFields returns a ErrParseHashedSchedule if part uses the H symbol and hf
+// is nil.
+func parseFields(expr string, hf *hashedFields) (*Schedule, error) {
 	var schedule Schedule
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
@@ -214,7 +269,7 @@ func parseFields(expr string) (*Schedule, error) {
 	}
 	for i, field := range fields {
 		for _, part := range strings.Split(field, ",") {
-			partial, err := parseSinglePart(part, i)
+			partial, err := parseSinglePart(part, i, hf)
 			if err != nil {
 				return nil, err
 			}
@@ -224,10 +279,15 @@ func parseFields(expr string) (*Schedule, error) {
 	return &schedule, nil
 }
 
-func parseSinglePart(part string, fieldIndex int) (*Schedule, error) {
+var ErrParseHashedSchedule = errors.New(
+	"the \"H\" symbol cannot be used with Parse; use ParseWithHash instead",
+)
+
+func parseSinglePart(part string, fieldIndex int, hf *hashedFields) (*Schedule, error) {
 	inc := 1
 	incParts := strings.SplitN(part, "/", 2)
-	if len(incParts) == 2 {
+	isInterval := len(incParts) == 2
+	if isInterval {
 		var err error
 		inc, err = strconv.Atoi(incParts[1])
 		if err != nil {
@@ -244,6 +304,9 @@ func parseSinglePart(part string, fieldIndex int) (*Schedule, error) {
 		rangeEnd = fieldSizes[fieldIndex] - 1
 	} else {
 		if rangeParts := strings.SplitN(incParts[0], "-", 2); len(rangeParts) == 2 {
+			if strings.HasPrefix(strings.ToUpper(rangeParts[0]), "H") {
+				return nil, fmt.Errorf("bad range %q -- H is not supported in ranges", incParts[0])
+			}
 			rangeStart, err = parseSingleValue(rangeParts[0], fieldIndex)
 			if err != nil {
 				return nil, err
@@ -254,6 +317,19 @@ func parseSinglePart(part string, fieldIndex int) (*Schedule, error) {
 			}
 			if rangeStart == rangeEnd {
 				return nil, fmt.Errorf("bad range %q -- start and end must be different", incParts[0])
+			}
+		} else if strings.ToUpper(incParts[0]) == "H" {
+			if hf == nil {
+				return nil, ErrParseHashedSchedule
+			}
+			if !isInterval {
+				rangeStart = hf.fields[fieldIndex]
+				rangeEnd = rangeStart
+			} else {
+				// For interval schedules like H/n, generate a random start time offset
+				// between [0, n).
+				rangeStart = hf.rng.Intn(inc)
+				rangeEnd = fieldSizes[fieldIndex] - 1
 			}
 		} else {
 			rangeStart, err = parseSingleValue(incParts[0], fieldIndex)
@@ -351,4 +427,31 @@ func (s *Schedule) union(s1 *Schedule) {
 	for i := range s.b {
 		s.b[i] |= s1.b[i]
 	}
+}
+
+type hashedFields struct {
+	rng    *rand.Rand
+	fields [5]int
+}
+
+// newHashedFields generates random schedule values for the given seed.
+// The same schedule values are generated given the same seed.
+func newHashedFields(seed uint64) *hashedFields {
+	rng := rand.New(rand.NewSource(int64(seed)))
+	hf := &hashedFields{rng, [5]int{}}
+	for fieldIndex := 0; fieldIndex < 5; fieldIndex++ {
+		n := fieldSizes[fieldIndex]
+		if fieldIndex == 2 {
+			// Only generate random days of the month in a range of [0, 28]
+			n = 29
+		}
+		val := rng.Intn(n)
+		switch fieldIndex {
+		// Month and day of week are 1-indexed.
+		case 2, 3:
+			val = val + 1
+		}
+		hf.fields[fieldIndex] = val
+	}
+	return hf
 }

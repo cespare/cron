@@ -1,7 +1,10 @@
 package cron
 
 import (
+	"fmt"
+	"math/rand"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,18 +13,45 @@ import (
 // Must be in sorted order. nil == '*'
 type testSchedule [5][]int
 
+func assertSchedule(t *testing.T, ts testSchedule, s *Schedule) {
+	t.Helper()
+	for i, size := range fieldSizes {
+		set := ts[i]
+		if set == nil {
+			for j := 0; j < size; j++ {
+				set = append(set, j)
+			}
+		}
+		for j := 0; j < size; j++ {
+			setInS := s.isSet(fieldOffsets[i] + j)
+			setInTestCase := true
+			index := sort.SearchInts(set, j)
+			if index == len(set) || set[index] != j {
+				setInTestCase = false
+			}
+			if setInS != setInTestCase {
+				t.Fatalf("got %v; want %v\n", s, ts)
+			}
+		}
+	}
+}
+
 type parseTestCase struct {
 	expr   string
 	parsed testSchedule
 }
 
-func TestParse(t *testing.T) {
+func TestParseWithoutHash(t *testing.T) {
 	for _, testCase := range []parseTestCase{
 		{"* * * * *", testSchedule{nil, nil, nil, nil, nil}},
 		{"0 0 1 1 0", testSchedule{{0}, {0}, {0}, {0}, {0}}},
 		{"2,3 * * * *", testSchedule{{2, 3}, nil, nil, nil, nil}},
 		{"2-5 * * * *", testSchedule{{2, 3, 4, 5}, nil, nil, nil, nil}},
 		{"1,3-5 * * * *", testSchedule{{1, 3, 4, 5}, nil, nil, nil, nil}},
+		{
+			"1,3-5,10-45/10,58 * * * *",
+			testSchedule{{1, 3, 4, 5, 10, 20, 30, 40, 58}, nil, nil, nil, nil},
+		},
 		{"* 21-3 * * *", testSchedule{nil, {0, 1, 2, 3, 21, 22, 23}, nil, nil, nil}},
 		{"* * * JAN *", testSchedule{nil, nil, nil, {0}, nil}},
 		{"* * * Janua *", testSchedule{nil, nil, nil, {0}, nil}},
@@ -34,53 +64,98 @@ func TestParse(t *testing.T) {
 		{"@daily", testSchedule{{0}, {0}, nil, nil, nil}},
 		{"@hourly", testSchedule{{0}, nil, nil, nil, nil}},
 	} {
-		s, err := Parse(testCase.expr)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i, size := range fieldSizes {
-			set := testCase.parsed[i]
-			if set == nil {
-				for j := 0; j < size; j++ {
-					set = append(set, j)
-				}
+		t.Run(testCase.expr, func(t *testing.T) {
+			s, err := Parse(testCase.expr)
+			if err != nil {
+				t.Fatal(err)
 			}
-			for j := 0; j < size; j++ {
-				setInS := s.isSet(fieldOffsets[i] + j)
-				setInTestCase := true
-				index := sort.SearchInts(set, j)
-				if index == len(set) || set[index] != j {
-					setInTestCase = false
+			assertSchedule(t, testCase.parsed, s)
+			// ParseWithHash should return the same schedule as Parse when the
+			// expression does not contain the H symbol.
+			if !strings.HasPrefix(testCase.expr, "@") {
+				s, err = ParseWithHash(testCase.expr, rand.Uint64())
+				if err != nil {
+					t.Fatal(err)
 				}
-				if setInS != setInTestCase {
-					t.Fatalf("got %v; want %v\n", s, testCase.parsed)
-				}
+				assertSchedule(t, testCase.parsed, s)
 			}
-		}
+		})
 	}
 }
 
 func TestParseFail(t *testing.T) {
-	for _, expr := range []string{
-		"* * * *",
-		"-1 * * * *",
-		"60 * * * *",
-		"* 24 * * *",
-		"* * 0 * *",
-		"* * 32 * *",
-		"* * * 0 *",
-		"* * * 13 *",
-		"* * * J *",
-		"* * * foo *",
-		"* * * * 7",
-		"1 - 3 * * * *",
-		"1-3-7 * * * *",
-		"1/3/7 * * * *",
-		"@foobar",
+	for _, tt := range []struct {
+		expr string
+		want error // nil for any error
+	}{
+		{"* * * *", nil},
+		{"-1 * * * *", nil},
+		{"60 * * * *", nil},
+		{"* 24 * * *", nil},
+		{"* * 0 * *", nil},
+		{"* * 32 * *", nil},
+		{"* * * 0 *", nil},
+		{"* * * 13 *", nil},
+		{"* * * J *", nil},
+		{"* * * foo *", nil},
+		{"* * * * 7", nil},
+		{"1 - 3 * * * *", nil},
+		{"1-3-7 * * * *", nil},
+		{"1/3/7 * * * *", nil},
+		{"@foobar", nil},
+		{"H * * * *", ErrParseHashedSchedule},
+		{"* H/4 * * *", ErrParseHashedSchedule},
+		{"* 1,H/4 * * *", ErrParseHashedSchedule},
+		{"H(1-5), * * * *", nil},
 	} {
-		if _, err := Parse(expr); err == nil {
-			t.Fatalf("Parse accepted %q, but it is invalid", expr)
-		}
+		t.Run(tt.expr, func(t *testing.T) {
+			_, err := Parse(tt.expr)
+			if err == nil {
+				t.Fatalf("Parse accepted %q, but it is invalid", tt.expr)
+			}
+			if tt.want != nil && err != tt.want {
+				t.Errorf("Parse returned an unexpected error: %s", err)
+			}
+		})
+	}
+}
+
+type parseHashedTestCase struct {
+	expr   string
+	seed   uint64
+	parsed testSchedule
+}
+
+func TestParseWithHash(t *testing.T) {
+	for _, testCase := range []parseHashedTestCase{
+		{"@hourly", 1, testSchedule{{41}, nil, nil, nil, nil}},
+		{"H * * * *", 1, testSchedule{{41}, nil, nil, nil, nil}},
+		{"@daily", 1, testSchedule{{41}, {15}, nil, nil, nil}},
+		{"H H * * *", 1, testSchedule{{41}, {15}, nil, nil, nil}},
+		{"@weekly", 1, testSchedule{{41}, {15}, nil, nil, {6}}},
+		{"H H * * H", 1, testSchedule{{41}, {15}, nil, nil, {6}}},
+		{"@monthly", 1, testSchedule{{41}, {15}, {0}, nil, nil}},
+		{"H H H * *", 1, testSchedule{{41}, {15}, {0}, nil, nil}},
+
+		{"H 0 * * *", 1, testSchedule{{41}, {0}, nil, nil, nil}},
+		{"@weekly", 10, testSchedule{{14}, {16}, nil, nil, {5}}},
+		{"H H H H H", 10, testSchedule{{14}, {16}, {11}, {11}, {5}}},
+		{"H H * * H", 100, testSchedule{{43}, {8}, nil, nil, {1}}},
+		{"@monthly", 100, testSchedule{{43}, {8}, {11}, nil, nil}},
+		{"H/1 * * * *", 1, testSchedule{nil, nil, nil, nil, nil}},
+		{"* H/6 * * *", 10, testSchedule{nil, {4, 10, 16, 22}, nil, nil, nil}},
+		{"H H/6 * * *", 10, testSchedule{{14}, {4, 10, 16, 22}, nil, nil, nil}},
+		{"H/15 H/6 * * *", 10, testSchedule{{4, 19, 34, 49}, {1, 7, 13, 19}, nil, nil, nil}},
+		{"H H/12 * MARCH *", 10, testSchedule{{14}, {4, 16}, nil, {2}, nil}},
+		{"H * * MARCH *", 10, testSchedule{{14}, nil, nil, {2}, nil}},
+	} {
+		t.Run(fmt.Sprintf("%s %d", testCase.expr, testCase.seed), func(t *testing.T) {
+			s, err := ParseWithHash(testCase.expr, testCase.seed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertSchedule(t, testCase.parsed, s)
+		})
 	}
 }
 
