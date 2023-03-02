@@ -272,15 +272,12 @@ func parseSinglePart(part string, fieldIndex int) (*Schedule, error) {
 
 	var i int
 	j := rangeStart
-	first := false
 	var s Schedule
 	for {
 		if i%inc == 0 {
 			s.set(fieldOffsets[fieldIndex] + j)
 		}
-		if first {
-			first = false
-		} else if j == rangeEnd {
+		if j == rangeEnd {
 			break
 		}
 		i++
