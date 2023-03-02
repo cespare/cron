@@ -106,7 +106,7 @@ func TestParseFail(t *testing.T) {
 		{"H * * * *", ErrParseHashedSchedule},
 		{"* H/4 * * *", ErrParseHashedSchedule},
 		{"* 1,H/4 * * *", ErrParseHashedSchedule},
-		{"H(1-5), * * * *", nil},
+		{"H(1-5) * * * *", nil},
 	} {
 		t.Run(tt.expr, func(t *testing.T) {
 			_, err := Parse(tt.expr)
