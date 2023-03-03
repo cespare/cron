@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// Parse parses a cron expression string. Five fields (minute, hour, day of
-// month, month, day of week) are expected. Valid symbols are
+// Parse parses a cron expression string. Five fields (minute, hour,
+// day of month, month, day of week) are expected. The valid symbols are
 //
 //	/ - * ,
 //
@@ -22,10 +22,21 @@ import (
 // Here are some examples of valid expression strings along with their meanings:
 //
 //   - "* * * * *": every minute
-//   - "/5 * * * *": every 5 minutes
+//   - "*/5 * * * *": every 5 minutes
+//   - "1,59 * * * *": on minute 1 and minute 59 of every hour
+//   - "10-20 * * * *": on minutes {10, 11, 12, ..., 20} of every hour
+//   - "10-20/2 * * * *": on minutes {10, 12, 14, 16, 18, 20} of every hour
 //   - "15 * * * *": every hour at 15 past
 //   - "0 3 * * Wed": every Wednesday at 0300
 //   - "0 0 1 */3 *": at the beginning of each quarter
+//
+// Note that if the step interval does not evenly divide the range, the
+// scheduling periods will have different lengths. For example, the schedule
+//
+//	*/11 * * * *
+//
+// triggers on minutes {0, 11, 22, 33, 44, 55} and the gap between minute 55 and
+// the subsequent hour's minute 0 is only five minutes, not 11.
 //
 // Instead of a five-field expression, a named schedule starting with "@" may be
 // used. Four named schedules are recognized:
@@ -49,12 +60,12 @@ func Parse(expr string) (Schedule, error) {
 		return Schedule{}, err
 	}
 	if usesH {
-		return Schedule{}, errors.New(`the "H" symbol cannot be used with Parse; use ParseWithHash instead`)
+		return Schedule{}, errors.New(`the "H" symbol cannot be used with Parse; use ParseH instead`)
 	}
 	return s, nil
 }
 
-// ParseWithHash is like Parse but additionally supports the symbol H in place
+// ParseH is like Parse but additionally supports the symbol H in place
 // of the minute, hour, day of month, month, or day of week field. The H symbol
 // requests a random value (within the valid range) for each instance of H in
 // the cron expression fixed using the given seed.
@@ -69,8 +80,21 @@ func Parse(expr string) (Schedule, error) {
 //
 // The range for randomly generated day of month values is [1, 28].
 //
-// Additionally, ParseWithHash interprets the named schedules differently from
-// Parse:
+// The H symbol may be used with a step interval. In this case, the range for
+// the random value is [0, step). For instance, the schedule
+//
+//	H/10 * * * *
+//
+// matches one of the following sequences of minutes:
+//
+//	{0, 10, ..., 50}
+//	{1, 11, ..., 51}
+//	...
+//	{9, 19, ..., 59}
+//
+// The H symbol may not be used with a list (,) or a range (-).
+//
+// ParseH interprets the named schedules differently from Parse:
 //
 //   - "@monthly" means "H H H * *"
 //   - "@weekly" means "H H * * H"
@@ -79,8 +103,8 @@ func Parse(expr string) (Schedule, error) {
 //
 // The idea of the H symbol is borrowed from Jenkins, though the details are a
 // bit different.
-func ParseWithHash(expr string, seed uint64) (Schedule, error) {
-	return parseWithHash(expr, rand.New(rand.NewSource(int64(seed))))
+func ParseH(expr string, seed uint64) (Schedule, error) {
+	return parseH(expr, rand.New(rand.NewSource(int64(seed))))
 }
 
 type rng interface {
@@ -104,9 +128,9 @@ func (r *fixedRNG) Intn(n int) int {
 	return result
 }
 
-func parseWithHash(expr string, r rng) (Schedule, error) {
+func parseH(expr string, r rng) (Schedule, error) {
 	if strings.HasPrefix(expr, "@") {
-		e, ok := namedHashedSchedules[expr]
+		e, ok := namedHSchedules[expr]
 		if !ok {
 			return Schedule{}, fmt.Errorf("unrecognized cron schedule name: %q", expr)
 		}
@@ -208,8 +232,8 @@ const (
 	domOffset     = hourOffset + hours
 	monthOffset   = domOffset + doms
 	dowOffset     = monthOffset + months
-	end           = dowOffset + dows
-	scheduleBytes = (end-1)/8 + 1
+	scheduleBits  = dowOffset + dows
+	scheduleBytes = (scheduleBits-1)/8 + 1
 )
 
 var fieldSizes = [...]int{
@@ -248,7 +272,7 @@ var namedSchedules = map[string]string{
 	"@hourly":  "0 * * * *",
 }
 
-var namedHashedSchedules = map[string]string{
+var namedHSchedules = map[string]string{
 	"@monthly": "H H H * *",
 	"@weekly":  "H H * * H",
 	"@daily":   "H H * * *",
@@ -305,16 +329,16 @@ func parseFields(expr string, r rng) (s Schedule, usesH bool, err error) {
 }
 
 func parseSinglePart(part string, fieldIndex int, r rng) (s Schedule, usesH bool, err error) {
-	inc := 1
+	step := 1
 	incParts := strings.SplitN(part, "/", 2)
 	if len(incParts) > 1 {
 		var err error
-		inc, err = strconv.Atoi(incParts[1])
+		step, err = strconv.Atoi(incParts[1])
 		if err != nil {
-			return Schedule{}, false, fmt.Errorf("invalid increment: %q", incParts[1])
+			return Schedule{}, false, fmt.Errorf("invalid step increment: %q", incParts[1])
 		}
-		if inc < 1 {
-			return Schedule{}, false, fmt.Errorf("invalid increment %d (must be at least 1)", inc)
+		if step < 1 {
+			return Schedule{}, false, fmt.Errorf("invalid step increment %d (must be at least 1)", step)
 		}
 	}
 	var rangeStart, rangeEnd int // inclusive
@@ -331,8 +355,8 @@ func parseSinglePart(part string, fieldIndex int, r rng) (s Schedule, usesH bool
 		if len(incParts) > 1 {
 			// For interval schedules like H/n,
 			// choose a random value less than n.
-			if inc < n {
-				n = inc
+			if step < n {
+				n = step
 			}
 			rangeStart = r.Intn(n)
 			rangeEnd = fieldSizes[fieldIndex] - 1
@@ -374,7 +398,7 @@ func parseSinglePart(part string, fieldIndex int, r rng) (s Schedule, usesH bool
 	var i int
 	j := rangeStart
 	for {
-		if i%inc == 0 {
+		if i%step == 0 {
 			s = s.set(fieldOffsets[fieldIndex] + j)
 		}
 		if j == rangeEnd {

@@ -32,7 +32,7 @@ func toTestSchedule(s Schedule) testSchedule {
 	return ts
 }
 
-func TestParseWithoutHash(t *testing.T) {
+func TestParse(t *testing.T) {
 	for _, tt := range []struct {
 		expr string
 		want testSchedule
@@ -67,15 +67,15 @@ func TestParseWithoutHash(t *testing.T) {
 		if strings.HasPrefix(tt.expr, "@") {
 			continue
 		}
-		// ParseWithHash should return the same schedule as Parse when the
+		// ParseH should return the same schedule as Parse when the
 		// expression does not contain the H symbol.
-		s, err = ParseWithHash(tt.expr, 0)
+		s, err = ParseH(tt.expr, 0)
 		if err != nil {
-			t.Errorf("ParseWithHash(%q): %s", tt.expr, err)
+			t.Errorf("ParseH(%q): %s", tt.expr, err)
 			continue
 		}
 		if diff := cmp.Diff(toTestSchedule(s), tt.want); diff != "" {
-			t.Errorf("ParseWithHash(%q): (-got, +want):\n%s", tt.expr, diff)
+			t.Errorf("ParseH(%q): (-got, +want):\n%s", tt.expr, diff)
 			continue
 		}
 	}
@@ -99,7 +99,7 @@ func TestParseFail(t *testing.T) {
 		{"* * * * 7", "invalid value"},
 		{"1 - 3 * * * *", "wrong number of fields"},
 		{"1-3-7 * * * *", "invalid value"},
-		{"1/3/7 * * * *", "invalid increment"},
+		{"1/3/7 * * * *", "invalid step increment"},
 		{"@foobar", "unrecognized cron schedule"},
 		{"H * * * *", `the "H" symbol`},
 		{"* H/4 * * *", `the "H" symbol`},
@@ -117,7 +117,7 @@ func TestParseFail(t *testing.T) {
 	}
 }
 
-func TestParseWithHash(t *testing.T) {
+func TestParseH(t *testing.T) {
 	for _, tt := range []struct {
 		expr     string
 		randVals []int
@@ -137,6 +137,7 @@ func TestParseWithHash(t *testing.T) {
 		{"H H H H H", []int{0}, testSchedule{{0}, {0}, {0}, {0}, {0}}},
 		{"H H H H H", []int{59, 23, 27, 11, 6}, testSchedule{{59}, {23}, {27}, {11}, {6}}},
 		{"H H H H H", []int{60, 24, 28, 12, 7}, testSchedule{{0}, {0}, {0}, {0}, {0}}},
+		{"* * H/30 * *", []int{30}, testSchedule{nil, nil, {2}, nil, nil}},
 		{"H H * * H", []int{3, 4, 5}, testSchedule{{3}, {4}, nil, nil, {5}}},
 		{"H/1 * * * *", []int{3}, testSchedule{nil, nil, nil, nil, nil}},
 		{"* H/6 * * *", []int{10}, testSchedule{nil, {4, 10, 16, 22}, nil, nil, nil}},
@@ -145,13 +146,13 @@ func TestParseWithHash(t *testing.T) {
 		{"H H/12 * March *", []int{14, 4}, testSchedule{{14}, {4, 16}, nil, {2}, nil}},
 		{"H * * MARCH *", []int{14, 4}, testSchedule{{14}, nil, nil, {2}, nil}},
 	} {
-		s, err := parseWithHash(tt.expr, &fixedRNG{vals: tt.randVals})
+		s, err := parseH(tt.expr, &fixedRNG{vals: tt.randVals})
 		if err != nil {
-			t.Errorf("parseWithHash(%q, %v): %s", tt.expr, tt.randVals, err)
+			t.Errorf("parseH(%q, %v): %s", tt.expr, tt.randVals, err)
 			continue
 		}
 		if diff := cmp.Diff(toTestSchedule(s), tt.want); diff != "" {
-			t.Errorf("parseWithHash(%q, %v): (-got, +want):\n%s", tt.expr, tt.randVals, diff)
+			t.Errorf("parseH(%q, %v): (-got, +want):\n%s", tt.expr, tt.randVals, diff)
 			continue
 		}
 	}
