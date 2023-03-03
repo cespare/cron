@@ -13,7 +13,7 @@ import (
 // Must be in sorted order. nil == '*'
 type testSchedule [5][]int
 
-func assertSchedule(t *testing.T, ts testSchedule, s *Schedule) {
+func assertSchedule(t *testing.T, ts testSchedule, s Schedule) {
 	t.Helper()
 	for i, size := range fieldSizes {
 		set := ts[i]
