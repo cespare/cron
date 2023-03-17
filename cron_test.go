@@ -19,7 +19,11 @@ func toTestSchedule(s Schedule) testSchedule {
 		allSet := true
 		for j := 0; j < size; j++ {
 			if s.isSet(fieldOffsets[i] + j) {
-				part = append(part, j)
+				v := j
+				if i == 2 || i == 3 {
+					v++
+				}
+				part = append(part, v)
 			} else {
 				allSet = false
 			}
@@ -38,19 +42,19 @@ func TestParse(t *testing.T) {
 		want testSchedule
 	}{
 		{"* * * * *", testSchedule{nil, nil, nil, nil, nil}},
-		{"0 0 1 1 0", testSchedule{{0}, {0}, {0}, {0}, {0}}},
+		{"0 0 1 1 0", testSchedule{{0}, {0}, {1}, {1}, {0}}},
 		{"2,3 * * * *", testSchedule{{2, 3}, nil, nil, nil, nil}},
 		{"2-5 * * * *", testSchedule{{2, 3, 4, 5}, nil, nil, nil, nil}},
 		{"1,3-5 * * * *", testSchedule{{1, 3, 4, 5}, nil, nil, nil, nil}},
 		{"1,3-5,10-45/10,58 * * * *", testSchedule{{1, 3, 4, 5, 10, 20, 30, 40, 58}, nil, nil, nil, nil}},
 		{"* 21-3 * * *", testSchedule{nil, {0, 1, 2, 3, 21, 22, 23}, nil, nil, nil}},
-		{"* * * JAN *", testSchedule{nil, nil, nil, {0}, nil}},
-		{"* * * Janua *", testSchedule{nil, nil, nil, {0}, nil}},
-		{"* * * APR-JUL *", testSchedule{nil, nil, nil, {3, 4, 5, 6}, nil}},
+		{"* * * JAN *", testSchedule{nil, nil, nil, {1}, nil}},
+		{"* * * Janua *", testSchedule{nil, nil, nil, {1}, nil}},
+		{"* * * APR-JUL *", testSchedule{nil, nil, nil, {4, 5, 6, 7}, nil}},
 		{"* * * * MON,WED", testSchedule{nil, nil, nil, nil, {1, 3}}},
 		{"* */6 * * *", testSchedule{nil, {0, 6, 12, 18}, nil, nil, nil}},
 		{"* 6-10/2 * * *", testSchedule{nil, {6, 8, 10}, nil, nil, nil}},
-		{"@monthly", testSchedule{{0}, {0}, {0}, nil, nil}},
+		{"@monthly", testSchedule{{0}, {0}, {1}, nil, nil}},
 		{"@weekly", testSchedule{{0}, {0}, nil, nil, {0}}},
 		{"@daily", testSchedule{{0}, {0}, nil, nil, nil}},
 		{"@hourly", testSchedule{{0}, nil, nil, nil, nil}},
@@ -129,22 +133,22 @@ func TestParseH(t *testing.T) {
 		{"H H * * *", []int{14, 15}, testSchedule{{14}, {15}, nil, nil, nil}},
 		{"@weekly", []int{16, 17, 18}, testSchedule{{16}, {17}, nil, nil, {4}}},
 		{"H H * * H", []int{19}, testSchedule{{19}, {19}, nil, nil, {5}}},
-		{"@monthly", []int{27, 21}, testSchedule{{27}, {21}, {27}, nil, nil}},
-		{"H H H * *", []int{28, 21}, testSchedule{{28}, {21}, {0}, nil, nil}},
+		{"@monthly", []int{27, 21}, testSchedule{{27}, {21}, {28}, nil, nil}},
+		{"H H H * *", []int{28, 21}, testSchedule{{28}, {21}, {1}, nil, nil}},
 		{"H 0 * * *", []int{22}, testSchedule{{22}, {0}, nil, nil, nil}},
 		{"@weekly", []int{23, 24}, testSchedule{{23}, {0}, nil, nil, {2}}},
-		{"H H H H H", []int{25, 26}, testSchedule{{25}, {2}, {25}, {2}, {4}}},
-		{"H H H H H", []int{0}, testSchedule{{0}, {0}, {0}, {0}, {0}}},
-		{"H H H H H", []int{59, 23, 27, 11, 6}, testSchedule{{59}, {23}, {27}, {11}, {6}}},
-		{"H H H H H", []int{60, 24, 28, 12, 7}, testSchedule{{0}, {0}, {0}, {0}, {0}}},
-		{"* * H/30 * *", []int{30}, testSchedule{nil, nil, {2}, nil, nil}},
+		{"H H H H H", []int{25, 26}, testSchedule{{25}, {2}, {26}, {3}, {4}}},
+		{"H H H H H", []int{0}, testSchedule{{0}, {0}, {1}, {1}, {0}}},
+		{"H H H H H", []int{59, 23, 27, 11, 6}, testSchedule{{59}, {23}, {28}, {12}, {6}}},
+		{"H H H H H", []int{60, 24, 28, 12, 7}, testSchedule{{0}, {0}, {1}, {1}, {0}}},
+		{"* * H/30 * *", []int{30}, testSchedule{nil, nil, {3}, nil, nil}},
 		{"H H * * H", []int{3, 4, 5}, testSchedule{{3}, {4}, nil, nil, {5}}},
 		{"H/1 * * * *", []int{3}, testSchedule{nil, nil, nil, nil, nil}},
 		{"* H/6 * * *", []int{10}, testSchedule{nil, {4, 10, 16, 22}, nil, nil, nil}},
 		{"H H/6 * * *", []int{11, 12}, testSchedule{{11}, {0, 6, 12, 18}, nil, nil, nil}},
 		{"H/15 H/6 * * *", []int{64, 1}, testSchedule{{4, 19, 34, 49}, {1, 7, 13, 19}, nil, nil, nil}},
-		{"H H/12 * March *", []int{14, 4}, testSchedule{{14}, {4, 16}, nil, {2}, nil}},
-		{"H * * MARCH *", []int{14, 4}, testSchedule{{14}, nil, nil, {2}, nil}},
+		{"H H/12 * March *", []int{14, 4}, testSchedule{{14}, {4, 16}, nil, {3}, nil}},
+		{"H * * MARCH *", []int{14, 4}, testSchedule{{14}, nil, nil, {3}, nil}},
 	} {
 		s, err := parseH(tt.expr, &fixedRNG{vals: tt.randVals})
 		if err != nil {
